@@ -61,5 +61,8 @@ To carry on with the things that the master does:
 
 + remember that in theory, the master keeps all versions of the big master list of files forever - there will just be some discrete garbage collection to throw away old versions and stop memory usage blowing up
 + whenever a new file-watcher list is added, run a function that takes in all the latest file lists from all the servers, deduplicates it, sorts it, and dumps it as a new element in the front of the list of master lists.  This sounds quite slow and memory-greedy but it might be fine, and if not, there are many potential ways of optimising it.
++ listen for requests from the client and hand out the latest version of the master file list when required
 
 I think I now have enough to do the spec.
+
+OK, spec done for now.  The thing that is worrying me at this stage is that this immutable sort of method could quite well have some terrible performance issues.  I think the best strategy is to get it to work and optimise later.

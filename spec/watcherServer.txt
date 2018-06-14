@@ -1,0 +1,7 @@
+The state of a watcher is a Go sync map.  It contains all (in theory) the versions of the file lists, making a complete new one whenever something changes.
+
+The watcher does these things:
+
++ looks for changes in its allotted folder.  If it sees one, it will create a complete, brand-new file list and add it to its internal state.  It will then contact the master, asking for the ID of the newest version that it holds.  If this exists, then it will send the difference between it and the newest version to the server.  If it does not exist, it will send the complete newest list.
+
++ Keeps checking the state and removing old entries, so as to keep memory usage down. The sync map should allow this without locking, since there should never be simultaneous deletion and access of entries in the map.

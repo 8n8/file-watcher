@@ -1,1 +1,7 @@
 *.sw*
+go/bin/
+go/pkg/
+.idea/
+*.xml
+*.iml
+go/src/gochallenge/watcher/watcher
