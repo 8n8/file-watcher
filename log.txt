@@ -66,3 +66,39 @@ To carry on with the things that the master does:
 I think I now have enough to do the spec.
 
 OK, spec done for now.  The thing that is worrying me at this stage is that this immutable sort of method could quite well have some terrible performance issues.  I think the best strategy is to get it to work and optimise later.
+
+The watcher should do something like this:
+
+func main() {
+    state = emptySyncMap
+	while True:
+       input = getInput(<possibly state here?>)
+	   state = updateState(state, input)
+	   send_output(state2Output(state))
+
+The trouble with this is that the state gets copied on every single loop, which is a bit of a waste, seeing as on the vast majority of loops nothing will happen.
+
+What about
+
+struct State {
+		// some content
+}
+
+struct Input {
+		// some inputty things
+}
+
+func main() {
+    state = emptySyncMap
+	while True:
+       input = getInput(<possibly state here?>)
+	   state = updateState(state, input)
+	   send_output(stateToOutput(state))
+}
+
+func getInput(State) -> Input {
+    fileChange = sitAndWaitTillSomethingChangesAndThenTellMe()
+	// more things
+}
+
+But the trouble with this is that something else could change while you do the 'more things'. 

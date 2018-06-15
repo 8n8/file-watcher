@@ -5,3 +5,5 @@ go/pkg/
 *.xml
 *.iml
 go/src/gochallenge/watcher/watcher
+go/src/github.com/
+go/src/golang.org/
