@@ -31,7 +31,7 @@ type inputT struct {
 }
 
 func stateToOutput(state stateT) outputT {
-	return outputT{x: 0}
+	return nil
 }
 
 type ioResultT struct {
@@ -56,7 +56,7 @@ func initIoResult() ioResultT {
 	}
 }
 
-func io(eventCh chan fsnotify.Event, errCh chan error, askCh chan bool, output outputT, masterUrl string) ioResultT {
+func io(watCh watcherChannelsT, output outputT, masterUrl string) ioResultT {
 
 	if output.msgToPrint != nil {
 		log.Print(output.msgToPrint)
@@ -64,14 +64,14 @@ func io(eventCh chan fsnotify.Event, errCh chan error, askCh chan bool, output o
 
 	result := initIoResult()
 
-	askCh <- true
+	watCh.ask <- true
 
-	events, eventsChOk := <-eventCh
+	events, eventsChOk := <-watCh.events
 	result.eventChOk = eventsChOk
 	if !eventsChOk { return result }
 	result.fileEvents = append(result.fileEvents, events)
 
-	errors, errChOk := <- errCh
+	errors, errChOk := <- watCh.errs
 	result.errChOk = errChOk
 	if !errChOk { return result }
 	result.fileErrors = append(result.fileErrors, errors)
@@ -91,18 +91,30 @@ func io(eventCh chan fsnotify.Event, errCh chan error, askCh chan bool, output o
 }
 
 func update(state stateT, ioResult ioResultT) stateT {
-	return initialState()
+	return nil
+}
+
+type watcherChannelsT struct {
+	events chan []fsnotify.Event
+	errs chan []error
+	ask chan bool
 }
 
 func main() {
+	dirToWatch := "/home/true/toWatch"
+	masterUrl := "http://localhost:3000"
 
-	eventCh := make(chan []fsnotify.Event)
-	errCh := make(chan []error)
-	askCh := make(chan bool)
+	watCh := watcherChannelsT{
+		events: make(chan []fsnotify.Event),
+		errs: make(chan []error),
+		ask: make(chan bool),
+	}
+
 	go func() {
 		watcher, err := fsnotify.NewWatcher()
+		watcher.Add(dirToWatch)
 		if err != nil {
-			errCh <- err
+			watCh.errs <- []error{err}
 			return
 		}
 		var events []fsnotify.Event
@@ -113,15 +125,15 @@ func main() {
 				events = append(events, event)
 			case err := <-watcher.Errors:
 				errors = append(errors, err)
-			case <-askCh:
-				eventCh <- events
-				errCh <- errors
+			case <-watCh.ask:
+				watCh.events <- events
+				watCh.errs <- errors
 			}
 		}
 	}()
 
 	state := initialState()
 	for state.keepGoing {
-		state = update(state, io(eventCh, errCh, stateToOutput(state)))
+		state = update(state, io(watCh, stateToOutput(state), masterUrl))
 	}
 }
