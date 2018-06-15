@@ -102,3 +102,9 @@ func getInput(State) -> Input {
 }
 
 But the trouble with this is that something else could change while you do the 'more things'. 
+
+Friday 15 June 2018
+
+So what IO do I need to do in the watcher?  ...
+
+I don't like how the watcher extracts all the file names from the channel in one go, really.
