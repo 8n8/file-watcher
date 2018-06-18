@@ -6,32 +6,78 @@ import (
 	"bytes"
 	"io/ioutil"
 	"log"
+	"errors"
+	"fmt"
+	"strings"
+	"encoding/json"
 )
 
-type fileSet map[string]string
-
-type stateT struct {
-	folderHistory []fileSet
-	keepGoing bool
+type changeSet struct {
+	guid string
+	deletions map[string]bool
+	creations map[string]bool
 }
 
-func initialState() stateT {
-	return stateT{
-		folderHistory: []fileSet{},
-	}
+type stateT struct {
+	folder map[string]bool
+	newestChange changeSet
+	lastChangeGuid string
+	keepGoing bool
+	fatalError error
+	nonFatalError error
+	ignorantMaster bool
 }
 
 type outputT struct {
 	jsonToSend []byte
 	msgToPrint string
+	checkForFileChanges bool
 }
 
-type inputT struct {
-	x int
+type msgToMaster struct {
+	changeSet changeSet
+	completeList []string
+}
+
+func getKeys(m map[string]bool) []string {
+	result := make([]string, len(m))
+	i := 0
+	for k := range m {
+		result[i] = k
+		i++
+	}
+	return result
+}
+
+func createPostMsg(ignorantMaster bool, newestChange changeSet, folder map[string]bool) ([]byte, error) {
+	var result msgToMaster
+	if ignorantMaster {
+		result = msgToMaster{
+			changeSet: changeSet{},
+			completeList: getKeys(folder),
+		}
+	}
+	result = msgToMaster{
+		changeSet: newestChange,
+		completeList: []string{},
+	}
+	return json.Marshal(result)
 }
 
 func stateToOutput(state stateT) outputT {
-	return nil
+	jsonMsg, encErr := createPostMsg(state.ignorantMaster, state.newestChange, state.folder)
+	errs := combineErrors([]error{state.fatalError, state.nonFatalError, encErr})
+	var msgToPrint string
+	if errs == nil {
+		msgToPrint = ""
+	} else {
+		msgToPrint = errs.Error()
+	}
+	return outputT{
+		jsonToSend: jsonMsg,
+		msgToPrint: msgToPrint,
+		checkForFileChanges: !state.ignorantMaster,
+	}
 }
 
 type ioResultT struct {
@@ -42,14 +88,15 @@ type ioResultT struct {
 	requestErr error
 	responseBody []byte
 	readBodyErr error
+	newGuid string
 }
 
 func initIoResult() ioResultT {
 	return ioResultT{
-		fileEvents: []fsnotify.Event,
-		fileErrors: []error,
-		errChOk: nil,
-		eventChOk: nil,
+		fileEvents: []fsnotify.Event{},
+		fileErrors: []error{},
+		errChOk: true,
+		eventChOk: true,
 		requestErr: nil,
 		responseBody: nil,
 		readBodyErr: nil,
@@ -58,23 +105,11 @@ func initIoResult() ioResultT {
 
 func io(watCh watcherChannelsT, output outputT, masterUrl string) ioResultT {
 
-	if output.msgToPrint != nil {
+	if output.msgToPrint != "" {
 		log.Print(output.msgToPrint)
 	}
 
 	result := initIoResult()
-
-	watCh.ask <- true
-
-	events, eventsChOk := <-watCh.events
-	result.eventChOk = eventsChOk
-	if !eventsChOk { return result }
-	result.fileEvents = append(result.fileEvents, events)
-
-	errors, errChOk := <- watCh.errs
-	result.errChOk = errChOk
-	if !errChOk { return result }
-	result.fileErrors = append(result.fileErrors, errors)
 
 	response, postErr := http.Post(
 		masterUrl,
@@ -87,11 +122,112 @@ func io(watCh watcherChannelsT, output outputT, masterUrl string) ioResultT {
 	result.responseBody = body
 	result.readBodyErr = bodyErr
 
+	if !output.checkForFileChanges { return result }
+
+	watCh.ask <- true
+
+	events, eventsChOk := <-watCh.events
+	result.eventChOk = eventsChOk
+	if !eventsChOk { return result }
+	result.fileEvents = events
+
+	errorList, errChOk := <-watCh.errs
+	result.errChOk = errChOk
+	if !errChOk { return result }
+	result.fileErrors = errorList
+
 	return result
 }
 
+func fatalErrors(fileErrors []error, eventChOk bool, errChOk bool) error {
+	errSlice := fileErrors
+	if !eventChOk {
+		errSlice = append(errSlice, errors.New("event channel broken"))
+	}
+	if !errChOk {
+		errSlice = append(errSlice, errors.New("error channel broken"))
+	}
+	return combineErrors(errSlice)
+}
+
+func combineErrors(errors []error) error {
+	var noNils []error
+	for _, err := range errors {
+		if err != nil {
+			noNils = append(noNils, err)
+		}
+	}
+	if len(noNils) == 0 { return nil }
+	return fmt.Errorf(strings.Join(errorsToStrings(noNils), "\n"))
+}
+
+func errorsToStrings(errors []error) []string {
+	var strs []string
+	for _, err := range errors {
+		strs = append(strs, err.Error())
+	}
+	return strs
+}
+
+func extractEvents(fileEvents []fsnotify.Event, toMatch map[fsnotify.Op]bool) map[string]bool {
+	var fileSet map[string]bool
+	for _, event := range fileEvents {
+		_, relevantEvent := toMatch[event.Op]
+		if relevantEvent {
+			fileSet[event.Name] = true
+		}
+	}
+	return fileSet
+}
+
+func deleteMap() map[fsnotify.Op]bool {
+	var d map[fsnotify.Op]bool
+	d[fsnotify.Remove] = true
+	d[fsnotify.Rename] = true
+	return d
+}
+
+func createMap() map[fsnotify.Op]bool {
+	var c map[fsnotify.Op]bool
+	c[fsnotify.Create] = true
+	return c
+}
+
+func newChangeSet(fileEvents []fsnotify.Event, newGuid string) changeSet {
+	return changeSet {
+		guid: newGuid,
+		deletions: extractEvents(fileEvents, deleteMap()),
+		creations: extractEvents(fileEvents, createMap()),
+	}
+}
+
+func ignorantMaster(lastChangeGuid string, response []byte) bool {
+	responseStr := string(response[:])
+	return responseStr == "" || responseStr != lastChangeGuid
+}
+
 func update(state stateT, ioResult ioResultT) stateT {
-	return nil
+	newChanges := newChangeSet(ioResult.fileEvents, ioResult.newGuid)
+	return stateT{
+		fatalError: fatalErrors(ioResult.fileErrors, ioResult.eventChOk, ioResult.errChOk),
+		keepGoing: state.fatalError == nil,
+		folder: updateFolder(state.folder, newChanges),
+		lastChangeGuid: state.newestChange.guid,
+		newestChange: newChanges,
+		ignorantMaster: ignorantMaster(state.lastChangeGuid, ioResult.responseBody),
+		nonFatalError: combineErrors([]error{ioResult.requestErr, ioResult.readBodyErr}),
+	}
+}
+
+func updateFolder(folder map[string]bool, changes changeSet) map[string]bool {
+	result := folder
+	for fileToAdd, _ := range changes.creations {
+		result[fileToAdd] = true
+	}
+	for fileToDelete, _ := range changes.deletions {
+		delete(result, fileToDelete)
+	}
+	return result
 }
 
 type watcherChannelsT struct {
@@ -118,21 +254,23 @@ func main() {
 			return
 		}
 		var events []fsnotify.Event
-		var errors []error
+		var errorList []error
 		for {
 			select {
 			case event := <-watcher.Events:
 				events = append(events, event)
 			case err := <-watcher.Errors:
-				errors = append(errors, err)
+				errorList = append(errorList, err)
 			case <-watCh.ask:
 				watCh.events <- events
-				watCh.errs <- errors
+				watCh.errs <- errorList
+				events = []fsnotify.Event{}
+				errorList = []error{}
 			}
 		}
 	}()
 
-	state := initialState()
+	state := stateT{}
 	for state.keepGoing {
 		state = update(state, io(watCh, stateToOutput(state), masterUrl))
 	}
