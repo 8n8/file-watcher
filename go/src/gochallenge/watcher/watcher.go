@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/fsnotify/fsnotify"
+	"github.com/nu7hatch/gouuid"
 	"net/http"
 	"bytes"
 	"io/ioutil"
@@ -100,6 +101,7 @@ func initIoResult() ioResultT {
 		requestErr: nil,
 		responseBody: nil,
 		readBodyErr: nil,
+		newGuid: "",
 	}
 }
 
@@ -123,6 +125,9 @@ func io(watCh watcherChannelsT, output outputT, masterUrl string) ioResultT {
 	result.readBodyErr = bodyErr
 
 	if !output.checkForFileChanges { return result }
+
+	guidBytes, _ := uuid.NewV4()
+	result.newGuid = guidBytes.String()
 
 	watCh.ask <- true
 
@@ -201,11 +206,6 @@ func newChangeSet(fileEvents []fsnotify.Event, newGuid string) changeSet {
 	}
 }
 
-func ignorantMaster(lastChangeGuid string, response []byte) bool {
-	responseStr := string(response[:])
-	return responseStr == "" || responseStr != lastChangeGuid
-}
-
 func update(state stateT, ioResult ioResultT) stateT {
 	newChanges := newChangeSet(ioResult.fileEvents, ioResult.newGuid)
 	return stateT{
@@ -214,7 +214,7 @@ func update(state stateT, ioResult ioResultT) stateT {
 		folder: updateFolder(state.folder, newChanges),
 		lastChangeGuid: state.newestChange.guid,
 		newestChange: newChanges,
-		ignorantMaster: ignorantMaster(state.lastChangeGuid, ioResult.responseBody),
+		ignorantMaster: string(ioResult.responseBody) != "ok",
 		nonFatalError: combineErrors([]error{ioResult.requestErr, ioResult.readBodyErr}),
 	}
 }
