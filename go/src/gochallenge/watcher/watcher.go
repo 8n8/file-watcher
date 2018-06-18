@@ -36,8 +36,11 @@ type outputT struct {
 }
 
 type msgToMaster struct {
-	changeSet changeSet
-	completeList []string
+	guid string
+	deletions []string
+	creations []string
+	allFiles []string
+	directory string
 }
 
 func getKeys(m map[string]bool) []string {
@@ -50,23 +53,37 @@ func getKeys(m map[string]bool) []string {
 	return result
 }
 
-func createPostMsg(ignorantMaster bool, newestChange changeSet, folder map[string]bool) ([]byte, error) {
+func createPostMsg(
+		ignorantMaster bool,
+		newestChange changeSet,
+		folder map[string]bool,
+		dirToWatch string) ([]byte, error) {
 	var result msgToMaster
 	if ignorantMaster {
 		result = msgToMaster{
-			changeSet: changeSet{},
-			completeList: getKeys(folder),
+			deletions: []string{},
+			creations: []string{},
+			guid: newestChange.guid,
+			allFiles: getKeys(folder),
+			directory: dirToWatch,
 		}
 	}
 	result = msgToMaster{
-		changeSet: newestChange,
-		completeList: []string{},
+		deletions: getKeys(newestChange.deletions),
+		creations: getKeys(newestChange.creations),
+		guid: newestChange.guid,
+		allFiles: []string{},
+		directory: dirToWatch,
 	}
 	return json.Marshal(result)
 }
 
-func stateToOutput(state stateT) outputT {
-	jsonMsg, encErr := createPostMsg(state.ignorantMaster, state.newestChange, state.folder)
+func stateToOutput(state stateT, dirToWatch string) outputT {
+	jsonMsg, encErr := createPostMsg(
+		state.ignorantMaster,
+		state.newestChange,
+		state.folder,
+		dirToWatch)
 	errs := combineErrors([]error{state.fatalError, state.nonFatalError, encErr})
 	var msgToPrint string
 	if errs == nil {
@@ -272,6 +289,6 @@ func main() {
 
 	state := stateT{}
 	for state.keepGoing {
-		state = update(state, io(watCh, stateToOutput(state), masterUrl))
+		state = update(state, io(watCh, stateToOutput(state, dirToWatch), masterUrl))
 	}
 }

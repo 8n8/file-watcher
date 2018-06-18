@@ -1,15 +1,13 @@
 The internal state of the master server is:
 
-+ For each watcher that connected to it since it last started up, an (in theory) complete set of the file lists provided by that watcher, with id numbers and timestamps.
++ The set of files in each folder
 
-+ All (in theory) of the master file lists that have been produced so far.
++ The guid of the last update for each folder.
 
-The (in theory) bit is because there will be a garbage collector sort-of-thing that chops down the history.
++ The master file list.
 
 The master server does these things:
 
-+ Hands out the latest version of the main list when asked by the client.
-+ Hands out guids of latest versions of watcher lists when asked by watchers.
-+ Stores new watcher lists when handed in by watchers.
-+ Creates and stores new watcher lists when diffs are handed in by watchers.
++ Hands out the latest version of the master file list when asked by the client.
++ Updates the folder file sets when updates come in, and respond with the guid of the last one.
 + Updates the master list whenever a watcher list is updated.

@@ -108,3 +108,19 @@ Friday 15 June 2018
 So what IO do I need to do in the watcher?  ...
 
 I don't like how the watcher extracts all the file names from the channel in one go, really.
+
+Monday 18 June 2018
+
+Started working on the master server now.  I think there is a flaw in my approach.  At the moment, I have all these requests coming in, and I am queuing them up and letting them wait while a single process works them out.  This is good in one way, because there is no locking, because all the state is managed by a single process, but the bad thing is that this single thread could be a bottleneck on the process.
+
+The trouble with firing off a separate goroutine for every request is that the requests then have to modify the state, and how do you merge everything back in again afterwards?  There would have to be some locks, and that could well slow things down.  I suppose, though, that if it turned out that the 'update' function was slow, then since it is pure, I could just hand it ... Don't worry - I have a feeling it's going to be plenty fast enough - there is not much computation to do and it should be fine - if not, I can reshape it later.
+
+The trouble now is that if a bunch of requests all come in at once, like requests A, B, and C in that order, then they will get put in the channel like this:
+
+in -> [ C, B, A ] -> out
+
+So if I shove in a request and wait for the response, then ...
+
+I know, the request should contain a channel to respond on, then I know that the response will be the right one.
+
+I'm now writing the 
