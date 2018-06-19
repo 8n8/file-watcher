@@ -29,6 +29,18 @@ type stateT struct {
 	ignorantMaster bool
 }
 
+func initState() stateT {
+	return stateT {
+		folder: map[string]bool{},
+		newestChange: changeSet{},
+		lastChangeGuid: "",
+		keepGoing: true,
+		fatalError: nil,
+		nonFatalError: nil,
+		ignorantMaster: false,
+	}
+}
+
 type outputT struct {
 	jsonToSend []byte
 	msgToPrint string
@@ -37,6 +49,7 @@ type outputT struct {
 
 type msgToMaster struct {
 	guid string
+	previousGuid string
 	deletions []string
 	creations []string
 	allFiles []string
@@ -57,12 +70,14 @@ func createPostMsg(
 		ignorantMaster bool,
 		newestChange changeSet,
 		folder map[string]bool,
+		previousGuid string,
 		dirToWatch string) ([]byte, error) {
 	var result msgToMaster
 	if ignorantMaster {
 		result = msgToMaster{
 			deletions: []string{},
 			creations: []string{},
+			previousGuid: previousGuid,
 			guid: newestChange.guid,
 			allFiles: getKeys(folder),
 			directory: dirToWatch,
@@ -72,6 +87,7 @@ func createPostMsg(
 		deletions: getKeys(newestChange.deletions),
 		creations: getKeys(newestChange.creations),
 		guid: newestChange.guid,
+		previousGuid: previousGuid,
 		allFiles: []string{},
 		directory: dirToWatch,
 	}
@@ -83,6 +99,7 @@ func stateToOutput(state stateT, dirToWatch string) outputT {
 		state.ignorantMaster,
 		state.newestChange,
 		state.folder,
+		state.lastChangeGuid,
 		dirToWatch)
 	errs := combineErrors([]error{state.fatalError, state.nonFatalError, encErr})
 	var msgToPrint string
@@ -192,7 +209,7 @@ func errorsToStrings(errors []error) []string {
 }
 
 func extractEvents(fileEvents []fsnotify.Event, toMatch map[fsnotify.Op]bool) map[string]bool {
-	var fileSet map[string]bool
+	fileSet := map[string]bool{}
 	for _, event := range fileEvents {
 		_, relevantEvent := toMatch[event.Op]
 		if relevantEvent {
@@ -203,14 +220,14 @@ func extractEvents(fileEvents []fsnotify.Event, toMatch map[fsnotify.Op]bool) ma
 }
 
 func deleteMap() map[fsnotify.Op]bool {
-	var d map[fsnotify.Op]bool
+	d := map[fsnotify.Op]bool{}
 	d[fsnotify.Remove] = true
 	d[fsnotify.Rename] = true
 	return d
 }
 
 func createMap() map[fsnotify.Op]bool {
-	var c map[fsnotify.Op]bool
+	c := map[fsnotify.Op]bool{}
 	c[fsnotify.Create] = true
 	return c
 }
@@ -231,7 +248,7 @@ func update(state stateT, ioResult ioResultT) stateT {
 		folder: updateFolder(state.folder, newChanges),
 		lastChangeGuid: state.newestChange.guid,
 		newestChange: newChanges,
-		ignorantMaster: string(ioResult.responseBody) != "ok",
+		ignorantMaster: string(ioResult.responseBody) == "badGuid",
 		nonFatalError: combineErrors([]error{ioResult.requestErr, ioResult.readBodyErr}),
 	}
 }
@@ -287,7 +304,7 @@ func main() {
 		}
 	}()
 
-	state := stateT{}
+	state := initState()
 	for state.keepGoing {
 		state = update(state, io(watCh, stateToOutput(state, dirToWatch), masterUrl))
 	}
