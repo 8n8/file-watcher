@@ -147,11 +147,14 @@ func io(watCh watcherChannelsT, output outputT, masterUrl string) ioResultT {
 
 	result := initIoResult()
 
+	fmt.Println("A")
+	fmt.Println(string(output.jsonToSend))
 	response, postErr := http.Post(
 		masterUrl,
 		"application/json",
 		bytes.NewBuffer(output.jsonToSend))
 	defer response.Body.Close()
+	fmt.Println("C")
 	result.requestErr = postErr
 	if postErr != nil { return result }
 	body, bodyErr := ioutil.ReadAll(response.Body)
@@ -165,16 +168,20 @@ func io(watCh watcherChannelsT, output outputT, masterUrl string) ioResultT {
 
 	watCh.ask <- true
 
+	fmt.Println("D")
 	events, eventsChOk := <-watCh.events
+	fmt.Println("G")
 	result.eventChOk = eventsChOk
 	if !eventsChOk { return result }
 	result.fileEvents = events
 
+	fmt.Println("E")
 	errorList, errChOk := <-watCh.errs
 	result.errChOk = errChOk
 	if !errChOk { return result }
 	result.fileErrors = errorList
 
+	fmt.Println("F")
 	return result
 }
 
@@ -293,19 +300,27 @@ func main() {
 			select {
 			case event := <-watcher.Events:
 				events = append(events, event)
+				fmt.Println("P")
 			case err := <-watcher.Errors:
 				errorList = append(errorList, err)
 			case <-watCh.ask:
-				watCh.events <- events
-				watCh.errs <- errorList
-				events = []fsnotify.Event{}
-				errorList = []error{}
+				fmt.Println("Y")
+				fmt.Println(events)
+				fmt.Println(errorList)
+				if len(events) != 0 || len(errorList) != 0 {
+					fmt.Println("X")
+					watCh.events <- events
+					watCh.errs <- errorList
+					events = []fsnotify.Event{}
+					errorList = []error{}
+				}
 			}
 		}
 	}()
 
 	state := initState()
 	for state.keepGoing {
+		fmt.Println("B")
 		state = update(state, io(watCh, stateToOutput(state, dirToWatch), masterUrl))
 	}
 }

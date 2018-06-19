@@ -288,6 +288,7 @@ func initState() stateT {
 }
 
 func main() {
+	fmt.Println("c")
 
 	serCh := serverChannelsT{
 		clientRequest: make(chan (chan []byte), maxBufferSize),
@@ -296,18 +297,22 @@ func main() {
 	}
 
 	go func() {
+		fmt.Println("d")
 		clientRequest := func(w http.ResponseWriter, r *http.Request) {
+			fmt.Println("a")
 			if len(serCh.clientRequest) == maxBufferSize {
 				w.WriteHeader(http.StatusServiceUnavailable)
-				w.Write([]byte("Server too busy."))
+				w.Write([]byte("Server too busya."))
 				return
 			}
 			replyChan := make(chan []byte)
+			fmt.Println("b")
 			serCh.clientRequest <- replyChan
 			w.Write(<-replyChan)
 		}
 
 		watcherInput := func(w http.ResponseWriter, r *http.Request) {
+			fmt.Println("e")
 			if len(serCh.watcherInput) == maxBufferSize {
 				w.WriteHeader(http.StatusServiceUnavailable)
 				w.Write([]byte("Server too busy."))
@@ -321,15 +326,16 @@ func main() {
 				bodyReadErr: err,
 			}
 		}
-
+		fmt.Println("f")
 		mux := goji.NewMux()
-		mux.HandleFunc(pat.Get("/"), clientRequest)
+		mux.HandleFunc(pat.Get("/files"), clientRequest)
 		mux.HandleFunc(pat.Post("/"), watcherInput)
 		http.ListenAndServe("localhost:3000", mux)
 	}()
 
 	state := initState()
 	for state.keepGoing {
+		fmt.Println("h")
 		state = update(state, io(stateToOutput(state), serCh))
 	}
 }
