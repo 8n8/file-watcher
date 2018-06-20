@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"bytes"
 	"io/ioutil"
+	"os"
 )
 
 type fileChangeT bool
@@ -29,6 +30,7 @@ type changeSet struct {
 
 type stateT struct {
 	folder map[string]bool
+	newChanges bool
 	newestChange changeSet
 	lastChangeGuid string
 	keepGoing bool
@@ -37,20 +39,37 @@ type stateT struct {
 	ignorantMaster bool
 }
 
-func initState() stateT {
+func getFileNames(fileInfos []os.FileInfo) []string {
+	result := make([]string, len(fileInfos))
+	for i, inf := range fileInfos {
+		result[i] = inf.Name()
+	}
+	return result
+}
+
+func initState(fileList map[string]bool) stateT {
 	return stateT {
-		folder: map[string]bool{},
+		folder: fileList,
+		newChanges: true,
 		newestChange: changeSet{
-			guid: "no guid because first time",
-			fileName: "no file name because first time",
+			guid: "",
+			fileName: "",
 			fileChange: createFile,
 		},
-		lastChangeGuid: "no guid because first time",
+		lastChangeGuid: "",
 		keepGoing: true,
 		fatalError: nil,
 		nonFatalError: nil,
 		ignorantMaster: true,
 	}
+}
+
+func listToMap(list []string) map[string]bool {
+	m := map[string]bool{}
+	for _, l := range list {
+		m[l] = true
+	}
+	return m
 }
 
 type outputT struct {
@@ -119,12 +138,19 @@ func changeTypeMap() map[fileChangeT]string {
 }
 
 func stateToOutput(state stateT, dirToWatch string) outputT {
-	jsonMsg, encErr := createPostMsg(
-		state.ignorantMaster,
-		state.newestChange,
-		state.folder,
-		state.lastChangeGuid,
-		dirToWatch)
+	var jsonMsg []byte
+	var encErr error
+	if state.newChanges || state.ignorantMaster {
+		jsonMsg, encErr = createPostMsg(
+			state.ignorantMaster,
+			state.newestChange,
+			state.folder,
+			state.lastChangeGuid,
+			dirToWatch)
+	} else {
+		jsonMsg = []byte{}
+		encErr = nil
+	}
 	errs := combineErrors([]error{state.fatalError, state.nonFatalError, encErr})
 	var msgToPrint string
 	if errs == nil {
@@ -166,13 +192,29 @@ func initIoResult() ioResultT {
 }
 
 func io(watCh watcherChannelsT, output outputT, masterUrl string) ioResultT {
-	fmt.Println("a")
 
 	if output.msgToPrint != "" {
 		log.Print(output.msgToPrint)
 	}
 
 	result := initIoResult()
+
+	if len(output.jsonToSend) > 0 {
+		fmt.Println("message send out:")
+		fmt.Println(string(output.jsonToSend))
+		response, postErr := http.Post(
+			masterUrl,
+			"application/json",
+			bytes.NewBuffer(output.jsonToSend))
+		defer response.Body.Close()
+		result.requestErr = postErr
+		if postErr != nil { return result }
+		body, bodyErr := ioutil.ReadAll(response.Body)
+		fmt.Println("response:")
+		fmt.Println(string(body))
+		result.responseBody = body
+		result.readBodyErr = bodyErr
+	}
 
 	if output.checkForFileChanges {
 
@@ -191,22 +233,6 @@ func io(watCh watcherChannelsT, output outputT, masterUrl string) ioResultT {
 		}
 		result.newEvents = true
 	}
-
-	response, postErr := http.Post(
-		masterUrl,
-		"application/json",
-		bytes.NewBuffer(output.jsonToSend))
-	defer response.Body.Close()
-	result.requestErr = postErr
-	if postErr != nil { return result }
-	body, bodyErr := ioutil.ReadAll(response.Body)
-	fmt.Println("========Out========")
-	fmt.Println(string(output.jsonToSend))
-	fmt.Println(">>>>>>>>Back>>>>>>>>")
-	fmt.Println(string(body))
-	fmt.Println("<<<<<<<<End<<<<<<<<")
-	result.responseBody = body
-	result.readBodyErr = bodyErr
 
 	return result
 }
@@ -257,32 +283,26 @@ func newChangeSet(fileEvent fsnotify.Event, newGuid string) changeSet {
 }
 
 func update(state stateT, ioResult ioResultT) stateT {
-	newChanges := changeSet{}
+	newestChanges := changeSet{}
 	newFolder := map[string]bool{}
 	if ioResult.newEvents {
-		newChanges = newChangeSet(ioResult.fileEvent, ioResult.newGuid)
-		newFolder = updateFolder(state.folder, newChanges)
+		newestChanges = newChangeSet(ioResult.fileEvent, ioResult.newGuid)
+		newFolder = updateFolder(state.folder, newestChanges)
 	} else {
-		newChanges = state.newestChange
+		newestChanges = state.newestChange
 		newFolder = state.folder
 	}
 
-	fmt.Println("new changes start:")
-	fmt.Println(newChanges)
-	fmt.Println("new changes end")
-	fmt.Println(state)
-	fmt.Println(state.newestChange.guid)
 	stateAfter := stateT{
 		fatalError: fatalErrors(ioResult.fileError, ioResult.eventChOk, ioResult.errChOk),
 		keepGoing: state.fatalError == nil,
 		folder: newFolder,
 		lastChangeGuid: state.newestChange.guid,
-		newestChange: newChanges,
+		newChanges: ioResult.newEvents,
+		newestChange: newestChanges,
 		ignorantMaster: string(ioResult.responseBody) == "badGuid",
 		nonFatalError: combineErrors([]error{ioResult.requestErr, ioResult.readBodyErr}),
 	}
-	fmt.Println("stateAfter")
-	fmt.Println(stateAfter)
 	return stateAfter
 }
 
@@ -305,8 +325,14 @@ type watcherChannelsT struct {
 const maxChanBuf = 10000
 
 func main() {
-	dirToWatch := "/home/true/toWatch"
+	dirToWatch := "/home/t/toWatch"
 	masterUrl := "http://localhost:3000"
+	fileList, err := ioutil.ReadDir(dirToWatch)
+
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
 
 	watCh := watcherChannelsT{
 		events: make(chan fsnotify.Event, maxChanBuf),
@@ -333,8 +359,10 @@ func main() {
 		}
 	}()
 
-	state := initState()
+	state := initState(listToMap(getFileNames(fileList)))
 	for state.keepGoing {
+		fmt.Println("state:")
+		fmt.Println(state)
 		state = update(state, io(watCh, stateToOutput(state, dirToWatch), masterUrl))
 	}
 }
