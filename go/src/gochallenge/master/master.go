@@ -127,6 +127,9 @@ func decodeInput(raw []byte) (watcherInputT, error) {
 }
 
 func handleWatcherInput(state stateT, ioResult ioResultT) stateT {
+	fmt.Println("=======")
+	fmt.Println(string(ioResult.rawWatcherInput.content));
+	fmt.Println("=======")
 	if ioResult.rawWatcherInput.bodyReadErr != nil {
 		return stateT{
 			folderFileSets: state.folderFileSets,
@@ -154,11 +157,11 @@ func handleWatcherInput(state stateT, ioResult ioResultT) stateT {
 			},
 		}
 	}
-	if len(watcherInput.completeList) != 0 {
+	if watcherInput.NewList {
 		fileSets := state.folderFileSets
-		fileSets[watcherInput.dirWatching] = newFolderState(
-			watcherInput.completeList,
-			watcherInput.guid)
+		fileSets[watcherInput.Directory] = newFolderState(
+			watcherInput.AllFiles,
+			watcherInput.Guid)
 		return stateT{
 			folderFileSets: fileSets,
 			masterList: makeMasterList(fileSets),
@@ -171,22 +174,28 @@ func handleWatcherInput(state stateT, ioResult ioResultT) stateT {
 			},
 		}
 	}
-	if state.folderFileSets[watcherInput.dirWatching].guidOfLastUpdate != watcherInput.guid {
+	fmt.Println(state.folderFileSets[watcherInput.Directory].guidOfLastUpdate)
+	fmt.Println(watcherInput.Guid)
+	if state.folderFileSets[watcherInput.Directory].guidOfLastUpdate != watcherInput.Guid {
+		fmt.Println("hello4")
+		fmt.Println(state.folderFileSets)
+		fmt.Println(">>>>>>>>")
 		return stateT {
 			folderFileSets: state.folderFileSets,
 			masterList: state.masterList,
 			keepGoing: true,
 			fatalErr: nil,
-			nonFatalErrs: []error{fmt.Errorf("mismatched guid for %s", watcherInput.dirWatching)},
+			nonFatalErrs: []error{fmt.Errorf("mismatched guid for %s", watcherInput.Directory)},
 			msgToWatcher: msgToWatcherT{
-				msg: []byte("bad guid"),
+				msg: []byte("badGuid"),
 				ch: ioResult.rawWatcherInput.replyChan,
 			},
 		}
 	}
+	fmt.Println("hello5")
 	fileSets := state.folderFileSets
-	fileSets[watcherInput.dirWatching] = updateFolderState(
-		state.folderFileSets[watcherInput.dirWatching].fileSet,
+	fileSets[watcherInput.Directory] = updateFolderState(
+		state.folderFileSets[watcherInput.Directory].fileSet,
 		watcherInput)
 	return stateT{
 		folderFileSets: fileSets,
@@ -203,15 +212,15 @@ func handleWatcherInput(state stateT, ioResult ioResultT) stateT {
 
 func updateFolderState(current map[string]bool, watcherInput watcherInputT) folderState {
 	newFileSet := current
-	for _, toCreate := range watcherInput.creations {
-		newFileSet[toCreate] = true
+	if watcherInput.ChangeType == "create" {
+		newFileSet[watcherInput.FileName] = true
 	}
-	for _, toDelete := range watcherInput.deletions {
-		delete(newFileSet, toDelete)
+	if watcherInput.ChangeType == "delete" {
+		delete(newFileSet, watcherInput.FileName)
 	}
 	return folderState{
 		fileSet: newFileSet,
-		guidOfLastUpdate: watcherInput.guid,
+		guidOfLastUpdate: watcherInput.Guid,
 	}
 }
 
@@ -254,17 +263,22 @@ func update(state stateT, ioResult ioResultT) stateT {
 	}
 	result := state
 	result.respondToClient = true
+	result.msgToWatcher = msgToWatcherT{
+		msg: []byte{},
+		ch: make(chan []byte),
+	}
 	result.clientChan = ioResult.clientRequest
 	return result
 }
 
 type watcherInputT struct {
-	previousGuid string
-	guid string
-	deletions []string
-	creations []string
-	completeList []string
-	dirWatching string
+	Guid string
+	PreviousGuid string
+	FileName string
+	ChangeType string
+	AllFiles []string
+	Directory string
+	NewList bool
 }
 
 type serverChannelsT struct {
@@ -288,8 +302,6 @@ func initState() stateT {
 }
 
 func main() {
-	fmt.Println("c")
-
 	serCh := serverChannelsT{
 		clientRequest: make(chan (chan []byte), maxBufferSize),
 		watcherInput: make(chan rawWatcherInputT, maxBufferSize),
@@ -297,22 +309,19 @@ func main() {
 	}
 
 	go func() {
-		fmt.Println("d")
 		clientRequest := func(w http.ResponseWriter, r *http.Request) {
-			fmt.Println("a")
 			if len(serCh.clientRequest) == maxBufferSize {
 				w.WriteHeader(http.StatusServiceUnavailable)
 				w.Write([]byte("Server too busya."))
 				return
 			}
 			replyChan := make(chan []byte)
-			fmt.Println("b")
 			serCh.clientRequest <- replyChan
 			w.Write(<-replyChan)
 		}
 
 		watcherInput := func(w http.ResponseWriter, r *http.Request) {
-			fmt.Println("e")
+			fmt.Println("a")
 			if len(serCh.watcherInput) == maxBufferSize {
 				w.WriteHeader(http.StatusServiceUnavailable)
 				w.Write([]byte("Server too busy."))
@@ -325,8 +334,12 @@ func main() {
 				replyChan: replyChan,
 				bodyReadErr: err,
 			}
+			resp := <-replyChan
+			fmt.Println("&&&&&&&&&")
+			fmt.Println(string(resp))
+			fmt.Println("$$$$$$$$$")
+			w.Write(resp)
 		}
-		fmt.Println("f")
 		mux := goji.NewMux()
 		mux.HandleFunc(pat.Get("/files"), clientRequest)
 		mux.HandleFunc(pat.Post("/"), watcherInput)
@@ -335,7 +348,6 @@ func main() {
 
 	state := initState()
 	for state.keepGoing {
-		fmt.Println("h")
 		state = update(state, io(stateToOutput(state), serCh))
 	}
 }

@@ -3,20 +3,28 @@ package main
 import (
 	"github.com/fsnotify/fsnotify"
 	"github.com/nu7hatch/gouuid"
-	"net/http"
-	"bytes"
-	"io/ioutil"
 	"log"
 	"errors"
 	"fmt"
 	"strings"
 	"encoding/json"
+	"path/filepath"
+	"net/http"
+	"bytes"
+	"io/ioutil"
+)
+
+type fileChangeT bool
+
+const (
+	createFile = true
+	deleteFile = false
 )
 
 type changeSet struct {
 	guid string
-	deletions map[string]bool
-	creations map[string]bool
+	fileName string
+	fileChange fileChangeT
 }
 
 type stateT struct {
@@ -32,12 +40,16 @@ type stateT struct {
 func initState() stateT {
 	return stateT {
 		folder: map[string]bool{},
-		newestChange: changeSet{},
-		lastChangeGuid: "",
+		newestChange: changeSet{
+			guid: "no guid because first time",
+			fileName: "no file name because first time",
+			fileChange: createFile,
+		},
+		lastChangeGuid: "no guid because first time",
 		keepGoing: true,
 		fatalError: nil,
 		nonFatalError: nil,
-		ignorantMaster: false,
+		ignorantMaster: true,
 	}
 }
 
@@ -48,12 +60,13 @@ type outputT struct {
 }
 
 type msgToMaster struct {
-	guid string
-	previousGuid string
-	deletions []string
-	creations []string
-	allFiles []string
-	directory string
+	Guid string
+	PreviousGuid string
+	FileName string
+	ChangeType string
+	AllFiles []string
+	Directory string
+	NewList bool
 }
 
 func getKeys(m map[string]bool) []string {
@@ -75,23 +88,34 @@ func createPostMsg(
 	var result msgToMaster
 	if ignorantMaster {
 		result = msgToMaster{
-			deletions: []string{},
-			creations: []string{},
-			previousGuid: previousGuid,
-			guid: newestChange.guid,
-			allFiles: getKeys(folder),
-			directory: dirToWatch,
+			FileName: newestChange.fileName,
+			PreviousGuid: previousGuid,
+			ChangeType: changeTypeMap()[newestChange.fileChange],
+			Guid: newestChange.guid,
+			AllFiles: getKeys(folder),
+			Directory: dirToWatch,
+			NewList: true,
+		}
+	} else {
+		result = msgToMaster{
+			Guid:         newestChange.guid,
+			PreviousGuid: previousGuid,
+			FileName:     newestChange.fileName,
+			ChangeType:   changeTypeMap()[newestChange.fileChange],
+			AllFiles:     []string{},
+			Directory:    dirToWatch,
+			NewList:      false,
 		}
 	}
-	result = msgToMaster{
-		deletions: getKeys(newestChange.deletions),
-		creations: getKeys(newestChange.creations),
-		guid: newestChange.guid,
-		previousGuid: previousGuid,
-		allFiles: []string{},
-		directory: dirToWatch,
-	}
-	return json.Marshal(result)
+	jsn, err := json.Marshal(result)
+	return jsn, err
+}
+
+func changeTypeMap() map[fileChangeT]string {
+	m := map[fileChangeT]string{}
+	m[createFile] = "create"
+	m[deleteFile] = "delete"
+	return m
 }
 
 func stateToOutput(state stateT, dirToWatch string) outputT {
@@ -116,20 +140,22 @@ func stateToOutput(state stateT, dirToWatch string) outputT {
 }
 
 type ioResultT struct {
-	fileEvents []fsnotify.Event
-	fileErrors []error
+	fileEvent fsnotify.Event
+	fileError error
 	errChOk bool
 	eventChOk bool
 	requestErr error
 	responseBody []byte
 	readBodyErr error
 	newGuid string
+	newEvents bool
 }
 
 func initIoResult() ioResultT {
 	return ioResultT{
-		fileEvents: []fsnotify.Event{},
-		fileErrors: []error{},
+		fileEvent: fsnotify.Event{},
+		newEvents: false,
+		fileError: nil,
 		errChOk: true,
 		eventChOk: true,
 		requestErr: nil,
@@ -140,6 +166,7 @@ func initIoResult() ioResultT {
 }
 
 func io(watCh watcherChannelsT, output outputT, masterUrl string) ioResultT {
+	fmt.Println("a")
 
 	if output.msgToPrint != "" {
 		log.Print(output.msgToPrint)
@@ -147,46 +174,45 @@ func io(watCh watcherChannelsT, output outputT, masterUrl string) ioResultT {
 
 	result := initIoResult()
 
-	fmt.Println("A")
-	fmt.Println(string(output.jsonToSend))
+	if output.checkForFileChanges {
+
+		guidBytes, _ := uuid.NewV4()
+		result.newGuid = guidBytes.String()
+
+		event, eventsChOk := <-watCh.events
+		result.eventChOk = eventsChOk
+		result.fileEvent = event
+
+		select {
+		case fileError, errChOk := <-watCh.errs:
+			result.errChOk = errChOk
+			result.fileError = fileError
+		default:
+		}
+		result.newEvents = true
+	}
+
 	response, postErr := http.Post(
 		masterUrl,
 		"application/json",
 		bytes.NewBuffer(output.jsonToSend))
 	defer response.Body.Close()
-	fmt.Println("C")
 	result.requestErr = postErr
 	if postErr != nil { return result }
 	body, bodyErr := ioutil.ReadAll(response.Body)
+	fmt.Println("========Out========")
+	fmt.Println(string(output.jsonToSend))
+	fmt.Println(">>>>>>>>Back>>>>>>>>")
+	fmt.Println(string(body))
+	fmt.Println("<<<<<<<<End<<<<<<<<")
 	result.responseBody = body
 	result.readBodyErr = bodyErr
 
-	if !output.checkForFileChanges { return result }
-
-	guidBytes, _ := uuid.NewV4()
-	result.newGuid = guidBytes.String()
-
-	watCh.ask <- true
-
-	fmt.Println("D")
-	events, eventsChOk := <-watCh.events
-	fmt.Println("G")
-	result.eventChOk = eventsChOk
-	if !eventsChOk { return result }
-	result.fileEvents = events
-
-	fmt.Println("E")
-	errorList, errChOk := <-watCh.errs
-	result.errChOk = errChOk
-	if !errChOk { return result }
-	result.fileErrors = errorList
-
-	fmt.Println("F")
 	return result
 }
 
-func fatalErrors(fileErrors []error, eventChOk bool, errChOk bool) error {
-	errSlice := fileErrors
+func fatalErrors(fileError error, eventChOk bool, errChOk bool) error {
+	errSlice := []error{fileError}
 	if !eventChOk {
 		errSlice = append(errSlice, errors.New("event channel broken"))
 	}
@@ -215,75 +241,76 @@ func errorsToStrings(errors []error) []string {
 	return strs
 }
 
-func extractEvents(fileEvents []fsnotify.Event, toMatch map[fsnotify.Op]bool) map[string]bool {
-	fileSet := map[string]bool{}
-	for _, event := range fileEvents {
-		_, relevantEvent := toMatch[event.Op]
-		if relevantEvent {
-			fileSet[event.Name] = true
-		}
-	}
-	return fileSet
+func opMap() map[fsnotify.Op]fileChangeT {
+	opMap := map[fsnotify.Op]fileChangeT{}
+	opMap[fsnotify.Create] = createFile
+	opMap[fsnotify.Remove] = deleteFile
+	return opMap
 }
 
-func deleteMap() map[fsnotify.Op]bool {
-	d := map[fsnotify.Op]bool{}
-	d[fsnotify.Remove] = true
-	d[fsnotify.Rename] = true
-	return d
-}
-
-func createMap() map[fsnotify.Op]bool {
-	c := map[fsnotify.Op]bool{}
-	c[fsnotify.Create] = true
-	return c
-}
-
-func newChangeSet(fileEvents []fsnotify.Event, newGuid string) changeSet {
+func newChangeSet(fileEvent fsnotify.Event, newGuid string) changeSet {
 	return changeSet {
 		guid: newGuid,
-		deletions: extractEvents(fileEvents, deleteMap()),
-		creations: extractEvents(fileEvents, createMap()),
+		fileName: filepath.Base(fileEvent.Name),
+		fileChange: opMap()[fileEvent.Op],
 	}
 }
 
 func update(state stateT, ioResult ioResultT) stateT {
-	newChanges := newChangeSet(ioResult.fileEvents, ioResult.newGuid)
-	return stateT{
-		fatalError: fatalErrors(ioResult.fileErrors, ioResult.eventChOk, ioResult.errChOk),
+	newChanges := changeSet{}
+	newFolder := map[string]bool{}
+	if ioResult.newEvents {
+		newChanges = newChangeSet(ioResult.fileEvent, ioResult.newGuid)
+		newFolder = updateFolder(state.folder, newChanges)
+	} else {
+		newChanges = state.newestChange
+		newFolder = state.folder
+	}
+
+	fmt.Println("new changes start:")
+	fmt.Println(newChanges)
+	fmt.Println("new changes end")
+	fmt.Println(state)
+	fmt.Println(state.newestChange.guid)
+	stateAfter := stateT{
+		fatalError: fatalErrors(ioResult.fileError, ioResult.eventChOk, ioResult.errChOk),
 		keepGoing: state.fatalError == nil,
-		folder: updateFolder(state.folder, newChanges),
+		folder: newFolder,
 		lastChangeGuid: state.newestChange.guid,
 		newestChange: newChanges,
 		ignorantMaster: string(ioResult.responseBody) == "badGuid",
 		nonFatalError: combineErrors([]error{ioResult.requestErr, ioResult.readBodyErr}),
 	}
+	fmt.Println("stateAfter")
+	fmt.Println(stateAfter)
+	return stateAfter
 }
 
 func updateFolder(folder map[string]bool, changes changeSet) map[string]bool {
 	result := folder
-	for fileToAdd, _ := range changes.creations {
-		result[fileToAdd] = true
-	}
-	for fileToDelete, _ := range changes.deletions {
-		delete(result, fileToDelete)
+	if changes.fileChange == createFile {
+		result[changes.fileName] = true
+	} else {
+		delete(result, changes.fileName)
 	}
 	return result
 }
 
 type watcherChannelsT struct {
-	events chan []fsnotify.Event
-	errs chan []error
+	events chan fsnotify.Event
+	errs chan error
 	ask chan bool
 }
+
+const maxChanBuf = 10000
 
 func main() {
 	dirToWatch := "/home/true/toWatch"
 	masterUrl := "http://localhost:3000"
 
 	watCh := watcherChannelsT{
-		events: make(chan []fsnotify.Event),
-		errs: make(chan []error),
+		events: make(chan fsnotify.Event, maxChanBuf),
+		errs: make(chan error, maxChanBuf),
 		ask: make(chan bool),
 	}
 
@@ -291,36 +318,23 @@ func main() {
 		watcher, err := fsnotify.NewWatcher()
 		watcher.Add(dirToWatch)
 		if err != nil {
-			watCh.errs <- []error{err}
+			watCh.errs <- err
 			return
 		}
-		var events []fsnotify.Event
-		var errorList []error
 		for {
 			select {
 			case event := <-watcher.Events:
-				events = append(events, event)
-				fmt.Println("P")
-			case err := <-watcher.Errors:
-				errorList = append(errorList, err)
-			case <-watCh.ask:
-				fmt.Println("Y")
-				fmt.Println(events)
-				fmt.Println(errorList)
-				if len(events) != 0 || len(errorList) != 0 {
-					fmt.Println("X")
-					watCh.events <- events
-					watCh.errs <- errorList
-					events = []fsnotify.Event{}
-					errorList = []error{}
+				if event.Op != fsnotify.Write && event.Op != fsnotify.Chmod {
+					watCh.events <- event
 				}
+			case err := <-watcher.Errors:
+				watCh.errs <- err
 			}
 		}
 	}()
 
 	state := initState()
 	for state.keepGoing {
-		fmt.Println("B")
 		state = update(state, io(watCh, stateToOutput(state, dirToWatch), masterUrl))
 	}
 }
