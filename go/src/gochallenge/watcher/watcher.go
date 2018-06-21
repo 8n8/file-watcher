@@ -23,7 +23,6 @@ const (
 )
 
 type changeSet struct {
-	guid string
 	fileName string
 	fileChange fileChangeT
 }
@@ -32,7 +31,8 @@ type stateT struct {
 	folder map[string]bool
 	newChanges bool
 	newestChange changeSet
-	lastChangeGuid string
+	latestGuid string
+	previousGuid string
 	keepGoing bool
 	fatalError error
 	nonFatalError error
@@ -48,15 +48,16 @@ func getFileNames(fileInfos []os.FileInfo) []string {
 }
 
 func initState(fileList map[string]bool) stateT {
+	guid := newGuid()
 	return stateT {
 		folder: fileList,
 		newChanges: true,
 		newestChange: changeSet{
-			guid: "",
 			fileName: "",
 			fileChange: createFile,
 		},
-		lastChangeGuid: "",
+		latestGuid: guid,
+		previousGuid: "",
 		keepGoing: true,
 		fatalError: nil,
 		nonFatalError: nil,
@@ -100,6 +101,7 @@ func getKeys(m map[string]bool) []string {
 
 func createPostMsg(
 		ignorantMaster bool,
+		latestGuid string,
 		newestChange changeSet,
 		folder map[string]bool,
 		previousGuid string,
@@ -110,14 +112,14 @@ func createPostMsg(
 			FileName: newestChange.fileName,
 			PreviousGuid: previousGuid,
 			ChangeType: changeTypeMap()[newestChange.fileChange],
-			Guid: newestChange.guid,
+			Guid: latestGuid,
 			AllFiles: getKeys(folder),
 			Directory: dirToWatch,
 			NewList: true,
 		}
 	} else {
 		result = msgToMaster{
-			Guid:         newestChange.guid,
+			Guid:         latestGuid,
 			PreviousGuid: previousGuid,
 			FileName:     newestChange.fileName,
 			ChangeType:   changeTypeMap()[newestChange.fileChange],
@@ -143,9 +145,10 @@ func stateToOutput(state stateT, dirToWatch string) outputT {
 	if state.newChanges || state.ignorantMaster {
 		jsonMsg, encErr = createPostMsg(
 			state.ignorantMaster,
+			state.latestGuid,
 			state.newestChange,
 			state.folder,
-			state.lastChangeGuid,
+			state.previousGuid,
 			dirToWatch)
 	} else {
 		jsonMsg = []byte{}
@@ -224,8 +227,7 @@ func io(watCh watcherChannelsT, output outputT, masterUrl string) ioResultT {
 	if output.checkForFileChanges {
 		fmt.Println("h")
 
-		guidBytes, _ := uuid.NewV4()
-		result.newGuid = guidBytes.String()
+		result.newGuid = newGuid()
 
 		event, eventsChOk := <-watCh.events
 		result.eventChOk = eventsChOk
@@ -241,6 +243,11 @@ func io(watCh watcherChannelsT, output outputT, masterUrl string) ioResultT {
 	}
 
 	return result
+}
+
+func newGuid() string {
+	guidBytes, _ := uuid.NewV4()
+	return guidBytes.String()
 }
 
 func fatalErrors(fileError error, eventChOk bool, errChOk bool) error {
@@ -280,9 +287,8 @@ func opMap() map[fsnotify.Op]fileChangeT {
 	return opMap
 }
 
-func newChangeSet(fileEvent fsnotify.Event, newGuid string) changeSet {
+func newChangeSet(fileEvent fsnotify.Event) changeSet {
 	return changeSet {
-		guid: newGuid,
 		fileName: filepath.Base(fileEvent.Name),
 		fileChange: opMap()[fileEvent.Op],
 	}
@@ -291,19 +297,26 @@ func newChangeSet(fileEvent fsnotify.Event, newGuid string) changeSet {
 func update(state stateT, ioResult ioResultT) stateT {
 	newestChanges := changeSet{}
 	newFolder := map[string]bool{}
+	var latestGuid string
+	var previousGuid string
 	if ioResult.newEvents {
-		newestChanges = newChangeSet(ioResult.fileEvent, ioResult.newGuid)
+		newestChanges = newChangeSet(ioResult.fileEvent)
 		newFolder = updateFolder(state.folder, newestChanges)
+		latestGuid = ioResult.newGuid
+		previousGuid = state.latestGuid
 	} else {
 		newestChanges = state.newestChange
 		newFolder = state.folder
+		latestGuid = state.latestGuid
+		previousGuid = state.previousGuid
 	}
 
 	stateAfter := stateT{
 		fatalError: fatalErrors(ioResult.fileError, ioResult.eventChOk, ioResult.errChOk),
 		keepGoing: state.fatalError == nil,
 		folder: newFolder,
-		lastChangeGuid: state.newestChange.guid,
+		previousGuid: previousGuid,
+		latestGuid: latestGuid,
 		newChanges: ioResult.newEvents,
 		newestChange: newestChanges,
 		ignorantMaster: string(ioResult.responseBody) == "badGuid",
@@ -331,7 +344,7 @@ type watcherChannelsT struct {
 const maxChanBuf = 10000
 
 func main() {
-	dirToWatch := "/home/true/toWatch"
+	dirToWatch := os.Args[1]
 	masterUrl := "http://localhost:3000"
 	fileList, err := ioutil.ReadDir(dirToWatch)
 

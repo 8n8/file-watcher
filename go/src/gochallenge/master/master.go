@@ -171,7 +171,7 @@ func handleWatcherInput(state stateT, ioResult ioResultT) stateT {
 			},
 		}
 	}
-	if state.folderFileSets[watcherInput.Directory].guidOfLastUpdate != watcherInput.Guid {
+	if state.folderFileSets[watcherInput.Directory].guidOfLastUpdate != watcherInput.PreviousGuid {
 		return stateT {
 			folderFileSets: state.folderFileSets,
 			masterList: state.masterList,
