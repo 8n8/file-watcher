@@ -203,8 +203,6 @@ func io(watCh watcherChannelsT, output outputT, masterUrl string) ioResultT {
 	result := initIoResult()
 
 	if len(output.jsonToSend) > 0 {
-		fmt.Println("message send out:")
-		fmt.Println(string(output.jsonToSend))
 		response, postErr := http.Post(
 			masterUrl,
 			"application/json",
@@ -213,19 +211,12 @@ func io(watCh watcherChannelsT, output outputT, masterUrl string) ioResultT {
 		result.requestErr = postErr
 		if postErr != nil { return result }
 		body, bodyErr := ioutil.ReadAll(response.Body)
-		fmt.Println("response:")
-		fmt.Println(string(body))
 		result.responseBody = body
 		result.readBodyErr = bodyErr
 		return result
 	}
 
-	fmt.Println("internalOutputType:")
-	fmt.Println(output)
-	fmt.Println("end InternalOutput")
-
 	if output.checkForFileChanges {
-		fmt.Println("h")
 
 		result.newGuid = newGuid()
 
@@ -380,8 +371,6 @@ func main() {
 
 	state := initState(listToMap(getFileNames(fileList)))
 	for state.keepGoing {
-		fmt.Println("state:")
-		fmt.Println(state)
 		state = update(state, io(watCh, stateToOutput(state, dirToWatch), masterUrl))
 	}
 }

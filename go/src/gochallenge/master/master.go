@@ -318,9 +318,6 @@ func main() {
 				return
 			}
 			body, err := ioutil.ReadAll(r.Body)
-			fmt.Println("input:")
-			fmt.Println(string(body))
-			fmt.Println("input end")
 			replyChan := make(chan []byte)
 			serCh.watcherInput <- rawWatcherInputT{
 				content: body,
@@ -328,9 +325,6 @@ func main() {
 				bodyReadErr: err,
 			}
 			resp := <-replyChan
-			fmt.Println("output:")
-			fmt.Println(string(resp))
-			fmt.Println("output end")
 			w.Write(resp)
 		}
 		mux := goji.NewMux()
@@ -341,9 +335,6 @@ func main() {
 
 	state := initState()
 	for state.keepGoing {
-		fmt.Println("state:")
-		fmt.Println(state)
-		fmt.Println("state end")
 		state = update(state, io(stateToOutput(state), serCh))
 	}
 }
