@@ -214,9 +214,15 @@ func io(watCh watcherChannelsT, output outputT, masterUrl string) ioResultT {
 		fmt.Println(string(body))
 		result.responseBody = body
 		result.readBodyErr = bodyErr
+		return result
 	}
 
+	fmt.Println("internalOutputType:")
+	fmt.Println(output)
+	fmt.Println("end InternalOutput")
+
 	if output.checkForFileChanges {
+		fmt.Println("h")
 
 		guidBytes, _ := uuid.NewV4()
 		result.newGuid = guidBytes.String()
@@ -325,7 +331,7 @@ type watcherChannelsT struct {
 const maxChanBuf = 10000
 
 func main() {
-	dirToWatch := "/home/t/toWatch"
+	dirToWatch := "/home/true/toWatch"
 	masterUrl := "http://localhost:3000"
 	fileList, err := ioutil.ReadDir(dirToWatch)
 

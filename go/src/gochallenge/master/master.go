@@ -127,9 +127,6 @@ func decodeInput(raw []byte) (watcherInputT, error) {
 }
 
 func handleWatcherInput(state stateT, ioResult ioResultT) stateT {
-	fmt.Println("=======")
-	fmt.Println(string(ioResult.rawWatcherInput.content));
-	fmt.Println("=======")
 	if ioResult.rawWatcherInput.bodyReadErr != nil {
 		return stateT{
 			folderFileSets: state.folderFileSets,
@@ -174,12 +171,7 @@ func handleWatcherInput(state stateT, ioResult ioResultT) stateT {
 			},
 		}
 	}
-	fmt.Println(state.folderFileSets[watcherInput.Directory].guidOfLastUpdate)
-	fmt.Println(watcherInput.Guid)
 	if state.folderFileSets[watcherInput.Directory].guidOfLastUpdate != watcherInput.Guid {
-		fmt.Println("hello4")
-		fmt.Println(state.folderFileSets)
-		fmt.Println(">>>>>>>>")
 		return stateT {
 			folderFileSets: state.folderFileSets,
 			masterList: state.masterList,
@@ -192,7 +184,6 @@ func handleWatcherInput(state stateT, ioResult ioResultT) stateT {
 			},
 		}
 	}
-	fmt.Println("hello5")
 	fileSets := state.folderFileSets
 	fileSets[watcherInput.Directory] = updateFolderState(
 		state.folderFileSets[watcherInput.Directory].fileSet,
@@ -297,7 +288,7 @@ func initState() stateT {
 		fatalErr: nil,
 		nonFatalErrs: []error{},
 		respondToClient: false,
-		clientChan: make(chan []byte),
+		clientChan: nil,
 	}
 }
 
@@ -312,7 +303,7 @@ func main() {
 		clientRequest := func(w http.ResponseWriter, r *http.Request) {
 			if len(serCh.clientRequest) == maxBufferSize {
 				w.WriteHeader(http.StatusServiceUnavailable)
-				w.Write([]byte("Server too busya."))
+				w.Write([]byte("Server too busy."))
 				return
 			}
 			replyChan := make(chan []byte)
@@ -321,13 +312,15 @@ func main() {
 		}
 
 		watcherInput := func(w http.ResponseWriter, r *http.Request) {
-			fmt.Println("a")
 			if len(serCh.watcherInput) == maxBufferSize {
 				w.WriteHeader(http.StatusServiceUnavailable)
 				w.Write([]byte("Server too busy."))
 				return
 			}
 			body, err := ioutil.ReadAll(r.Body)
+			fmt.Println("input:")
+			fmt.Println(string(body))
+			fmt.Println("input end")
 			replyChan := make(chan []byte)
 			serCh.watcherInput <- rawWatcherInputT{
 				content: body,
@@ -335,9 +328,9 @@ func main() {
 				bodyReadErr: err,
 			}
 			resp := <-replyChan
-			fmt.Println("&&&&&&&&&")
+			fmt.Println("output:")
 			fmt.Println(string(resp))
-			fmt.Println("$$$$$$$$$")
+			fmt.Println("output end")
 			w.Write(resp)
 		}
 		mux := goji.NewMux()
@@ -348,6 +341,9 @@ func main() {
 
 	state := initState()
 	for state.keepGoing {
+		fmt.Println("state:")
+		fmt.Println(state)
+		fmt.Println("state end")
 		state = update(state, io(stateToOutput(state), serCh))
 	}
 }
