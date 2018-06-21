@@ -177,7 +177,7 @@ func handleWatcherInput(state stateT, ioResult ioResultT) stateT {
 			masterList: state.masterList,
 			keepGoing: true,
 			fatalErr: nil,
-			nonFatalErrs: []error{fmt.Errorf("mismatched guid for %s", watcherInput.Directory)},
+			nonFatalErrs: []error{},
 			msgToWatcher: msgToWatcherT{
 				msg: []byte("badGuid"),
 				ch: ioResult.rawWatcherInput.replyChan,

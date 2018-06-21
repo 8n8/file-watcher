@@ -207,9 +207,9 @@ func io(watCh watcherChannelsT, output outputT, masterUrl string) ioResultT {
 			masterUrl,
 			"application/json",
 			bytes.NewBuffer(output.jsonToSend))
-		defer response.Body.Close()
 		result.requestErr = postErr
 		if postErr != nil { return result }
+		defer response.Body.Close()
 		body, bodyErr := ioutil.ReadAll(response.Body)
 		result.responseBody = body
 		result.readBodyErr = bodyErr
