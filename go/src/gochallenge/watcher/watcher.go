@@ -48,7 +48,6 @@ func getFileNames(fileInfos []os.FileInfo) []string {
 }
 
 func initState(fileList map[string]bool) stateT {
-	guid := newGuid()
 	return stateT {
 		folder: fileList,
 		newChanges: true,
@@ -56,7 +55,7 @@ func initState(fileList map[string]bool) stateT {
 			fileName: "",
 			fileChange: createFile,
 		},
-		latestGuid: guid,
+		latestGuid: newGuid(),
 		previousGuid: "",
 		keepGoing: true,
 		fatalError: nil,
