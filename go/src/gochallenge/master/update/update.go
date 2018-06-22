@@ -11,8 +11,6 @@ func handleWatcherInput(state stateT, ioResult IoResultT) stateT {
 		return stateT{
 			FolderFileSets: state.FolderFileSets,
 			MasterList: state.MasterList,
-			KeepGoing: true,
-			FatalErr: nil,
 			NonFatalErrs: []error{ioResult.RawWatcherInput.BodyReadErr},
 			MsgToWatcher: msgToWatcherT{
 				Msg: []byte("internal error"),
@@ -25,8 +23,6 @@ func handleWatcherInput(state stateT, ioResult IoResultT) stateT {
 		return stateT{
 			FolderFileSets: state.FolderFileSets,
 			MasterList: state.MasterList,
-			KeepGoing: true,
-			FatalErr: nil,
 			NonFatalErrs: []error{err},
 			MsgToWatcher: msgToWatcherT{
 				Msg: []byte("could not decode json"),
@@ -42,8 +38,6 @@ func handleWatcherInput(state stateT, ioResult IoResultT) stateT {
 		return stateT{
 			FolderFileSets: fileSets,
 			MasterList: makeMasterList(fileSets),
-			KeepGoing: true,
-			FatalErr: nil,
 			NonFatalErrs: []error{},
 			MsgToWatcher: msgToWatcherT{
 				Msg: []byte("ok"),
@@ -55,8 +49,6 @@ func handleWatcherInput(state stateT, ioResult IoResultT) stateT {
 		return stateT {
 			FolderFileSets: state.FolderFileSets,
 			MasterList: state.MasterList,
-			KeepGoing: true,
-			FatalErr: nil,
 			NonFatalErrs: []error{},
 			MsgToWatcher: msgToWatcherT{
 				Msg: []byte("badGuid"),
@@ -71,8 +63,6 @@ func handleWatcherInput(state stateT, ioResult IoResultT) stateT {
 	return stateT{
 		FolderFileSets: fileSets,
 		MasterList: makeMasterList(fileSets),
-		KeepGoing: true,
-		FatalErr: nil,
 		NonFatalErrs: []error{},
 		MsgToWatcher: msgToWatcherT{
 			Msg: []byte("ok"),
@@ -165,8 +155,6 @@ func InitState() stateT {
 	return stateT{
 		FolderFileSets: map[string]folderState{},
 		MasterList:     []string{},
-		KeepGoing:      true,
-		FatalErr: nil,
 		NonFatalErrs: []error{},
 		RespondToClient: false,
 		ClientChan: nil,
@@ -176,8 +164,6 @@ func InitState() stateT {
 type stateT struct {
 	FolderFileSets map[string]folderState
 	MasterList []string
-	KeepGoing bool
-	FatalErr error
 	NonFatalErrs []error
 	MsgToWatcher msgToWatcherT
 	RespondToClient bool

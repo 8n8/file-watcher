@@ -82,7 +82,7 @@ func main() {
 	}()
 
 	state := update.InitState()
-	for state.KeepGoing {
+	for {
 		state = update.Update(state, io(update.StateToOutput(state), serCh))
 	}
 }
