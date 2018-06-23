@@ -1,4 +1,4 @@
-# Code challenge: file monitoring with microservices in Go
+# Solution to code challenge: file monitoring with microservices in Go
 
 The task is to maintain an up-to-date flat list of the files in many directories, using a separate server for each directory, and a master server to collate the results and respond to client requests.
 
