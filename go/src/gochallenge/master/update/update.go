@@ -12,7 +12,7 @@ func handleWatcherInput(state stateT, ioResult IoResultT) stateT {
 			FolderFileSets: state.FolderFileSets,
 			MasterList: state.MasterList,
 			NonFatalErrs: []error{ioResult.RawWatcherInput.BodyReadErr},
-			MsgToWatcher: msgToWatcherT{
+			MsgToWatcher: MsgToWatcherT{
 				Msg: []byte("internal error"),
 				Ch: ioResult.RawWatcherInput.ReplyChan,
 			},
@@ -24,7 +24,7 @@ func handleWatcherInput(state stateT, ioResult IoResultT) stateT {
 			FolderFileSets: state.FolderFileSets,
 			MasterList: state.MasterList,
 			NonFatalErrs: []error{err},
-			MsgToWatcher: msgToWatcherT{
+			MsgToWatcher: MsgToWatcherT{
 				Msg: []byte("could not decode json"),
 				Ch: ioResult.RawWatcherInput.ReplyChan,
 			},
@@ -39,7 +39,7 @@ func handleWatcherInput(state stateT, ioResult IoResultT) stateT {
 			FolderFileSets: fileSets,
 			MasterList: makeMasterList(fileSets),
 			NonFatalErrs: []error{},
-			MsgToWatcher: msgToWatcherT{
+			MsgToWatcher: MsgToWatcherT{
 				Msg: []byte("ok"),
 				Ch: ioResult.RawWatcherInput.ReplyChan,
 			},
@@ -50,7 +50,7 @@ func handleWatcherInput(state stateT, ioResult IoResultT) stateT {
 			FolderFileSets: state.FolderFileSets,
 			MasterList: state.MasterList,
 			NonFatalErrs: []error{},
-			MsgToWatcher: msgToWatcherT{
+			MsgToWatcher: MsgToWatcherT{
 				Msg: []byte("badGuid"),
 				Ch: ioResult.RawWatcherInput.ReplyChan,
 			},
@@ -64,7 +64,7 @@ func handleWatcherInput(state stateT, ioResult IoResultT) stateT {
 		FolderFileSets: fileSets,
 		MasterList: makeMasterList(fileSets),
 		NonFatalErrs: []error{},
-		MsgToWatcher: msgToWatcherT{
+		MsgToWatcher: MsgToWatcherT{
 			Msg: []byte("ok"),
 			Ch: ioResult.RawWatcherInput.ReplyChan,
 		},
@@ -124,12 +124,21 @@ func Update(state stateT, ioResult IoResultT) stateT {
 	}
 	result := state
 	result.RespondToClient = true
-	result.MsgToWatcher = msgToWatcherT{
+	result.MsgToWatcher = MsgToWatcherT{
 		Msg: []byte{},
 		Ch: make(chan []byte),
 	}
 	result.ClientChan = ioResult.ClientRequest
 	return result
+}
+
+type stateT struct {
+	FolderFileSets map[string]folderState
+	MasterList []string
+	NonFatalErrs []error
+	MsgToWatcher MsgToWatcherT
+	RespondToClient bool
+	ClientChan chan []byte
 }
 
 type IoResultT struct {
@@ -161,16 +170,7 @@ func InitState() stateT {
 	}
 }
 
-type stateT struct {
-	FolderFileSets map[string]folderState
-	MasterList []string
-	NonFatalErrs []error
-	MsgToWatcher msgToWatcherT
-	RespondToClient bool
-	ClientChan chan []byte
-}
-
-type msgToWatcherT struct {
+type MsgToWatcherT struct {
 	Msg []byte
 	Ch chan []byte
 }
@@ -233,7 +233,7 @@ func errorsToStrings(errors []error) []string {
 
 type OutputT struct {
 	ResponseToClient ResponseToClientT
-	ResponseToWatcher msgToWatcherT
+	ResponseToWatcher MsgToWatcherT
 	MsgToPrint string
 }
 

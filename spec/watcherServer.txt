@@ -1,5 +1,0 @@
-The state of a watcher is a Go sync map.  It contains all (in theory) the versions of the file lists, making a complete new one whenever something changes.
-
-The watcher does these things:
-
-+ Looks for changes in its allotted folder.  If it sees one, it will add the the changes to its internal state.  Each set of changes will be attached to a GUID. It will then send these changes to the master, along with their GUID and that of the previous change sent.  The master should respond by saying whether or not the previous guid supplied matches the one in its records.  If the GUID is out of date, the watcher needs to send the entire file list.

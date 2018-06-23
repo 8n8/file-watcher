@@ -1,12 +1,12 @@
 package main
 
 import (
-	"goji.io"
-	"goji.io/pat"
-	"net/http"
-	"io/ioutil"
 	"fmt"
 	"gochallenge/master/update"
+	"goji.io"
+	"goji.io/pat"
+	"io/ioutil"
+	"net/http"
 )
 
 func io(output update.OutputT, chs serverChannelsT) update.IoResultT {
@@ -34,8 +34,8 @@ func io(output update.OutputT, chs serverChannelsT) update.IoResultT {
 
 type serverChannelsT struct {
 	clientRequest chan (chan []byte)
-	watcherInput chan update.RawWatcherInputT
-	err chan error
+	watcherInput  chan update.RawWatcherInputT
+	err           chan error
 }
 
 const maxBufferSize = 1000
@@ -43,8 +43,8 @@ const maxBufferSize = 1000
 func main() {
 	serCh := serverChannelsT{
 		clientRequest: make(chan (chan []byte), maxBufferSize),
-		watcherInput: make(chan update.RawWatcherInputT, maxBufferSize),
-		err: make(chan error),
+		watcherInput:  make(chan update.RawWatcherInputT, maxBufferSize),
+		err:           make(chan error),
 	}
 
 	go func() {
@@ -68,8 +68,8 @@ func main() {
 			body, err := ioutil.ReadAll(r.Body)
 			replyChan := make(chan []byte)
 			serCh.watcherInput <- update.RawWatcherInputT{
-				Content: body,
-				ReplyChan: replyChan,
+				Content:     body,
+				ReplyChan:   replyChan,
 				BodyReadErr: err,
 			}
 			resp := <-replyChan
@@ -86,3 +86,4 @@ func main() {
 		state = update.Update(state, io(update.StateToOutput(state), serCh))
 	}
 }
+
