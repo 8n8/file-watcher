@@ -1,72 +1,76 @@
+// Provides the two main functions for the main loop of the watcher
+// server.  One to update the state, and the other to calculate
+// the messages to send out, given the state.
 package update
 
 import (
-	"github.com/fsnotify/fsnotify"
-	"path/filepath"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/fsnotify/fsnotify"
+	"path/filepath"
 	"strings"
-	"encoding/json"
 )
 
+// The state of the main loop of the watcher server.
 type StateT struct {
-	Folder map[string]bool
-	NewChanges bool
-	NewestChange changeSet
-	LatestGuid string
-	PreviousGuid string
-	KeepGoing bool
-	FatalError error
-	NonFatalError error
+	Folder         map[string]bool
+	NewChanges     bool
+	NewestChange   changeSet
+	LatestGuid     string
+	PreviousGuid   string
+	KeepGoing      bool
+	FatalError     error
+	NonFatalError  error
 	IgnorantMaster bool
 }
 
 func InitState(fileList map[string]bool, newGuid string) StateT {
-	return StateT {
-		Folder: fileList,
+	return StateT{
+		Folder:     fileList,
 		NewChanges: true,
 		NewestChange: changeSet{
-			fileName: "",
+			fileName:   "",
 			fileChange: createFile,
 		},
-		LatestGuid: newGuid,
-		PreviousGuid: "",
-		KeepGoing: true,
-		FatalError: nil,
-		NonFatalError: nil,
+		LatestGuid:     newGuid,
+		PreviousGuid:   "",
+		KeepGoing:      true,
+		FatalError:     nil,
+		NonFatalError:  nil,
 		IgnorantMaster: true,
 	}
 }
 
 type changeSet struct {
-	fileName string
+	fileName   string
 	fileChange fileChangeT
 }
 
 func InitIoResult() IoResultT {
 	return IoResultT{
-		FileEvent: fsnotify.Event{},
-		NewEvents: false,
-		FileError: nil,
-		ErrChOk: true,
-		EventChOk: true,
-		RequestErr: nil,
+		FileEvent:    fsnotify.Event{},
+		NewEvents:    false,
+		FileError:    nil,
+		ErrChOk:      true,
+		EventChOk:    true,
+		RequestErr:   nil,
 		ResponseBody: nil,
-		ReadBodyErr: nil,
-		NewGuid: "",
+		ReadBodyErr:  nil,
+		NewGuid:      "",
 	}
 }
 
 type IoResultT struct {
-	FileEvent fsnotify.Event
-	FileError error
-	ErrChOk bool
-	EventChOk bool
-	RequestErr error
+	FileEvent    fsnotify.Event
+	FileError    error
+	ErrChOk      bool
+	EventChOk    bool
+	RequestErr   error
 	ResponseBody []byte
-	ReadBodyErr error
-	NewGuid string
-	NewEvents bool
+	ReadBodyErr  error
+	NewGuid      string
+	NewEvents    bool
 }
 
 type fileChangeT bool
@@ -94,12 +98,14 @@ func updateFolder(folder map[string]bool, changes changeSet) map[string]bool {
 }
 
 func newChangeSet(fileEvent fsnotify.Event) changeSet {
-	return changeSet {
-		fileName: filepath.Base(fileEvent.Name),
+	return changeSet{
+		fileName:   filepath.Base(fileEvent.Name),
 		fileChange: opMap()[fileEvent.Op],
 	}
 }
 
+// The main update function used by the main loop of the server to update
+// the state, given the previous state and new data from IO.
 func Update(state StateT, ioResult IoResultT) StateT {
 	newestChanges := changeSet{}
 	newFolder := map[string]bool{}
@@ -118,19 +124,21 @@ func Update(state StateT, ioResult IoResultT) StateT {
 	}
 
 	stateAfter := StateT{
-		FatalError: fatalErrors(ioResult.FileError, ioResult.EventChOk, ioResult.ErrChOk),
-		KeepGoing: state.FatalError == nil,
-		Folder: newFolder,
-		PreviousGuid: previousGuid,
-		LatestGuid: latestGuid,
-		NewChanges: ioResult.NewEvents,
-		NewestChange: newestChanges,
+		FatalError:     fatalErrors(ioResult.FileError, ioResult.EventChOk, ioResult.ErrChOk),
+		KeepGoing:      state.FatalError == nil,
+		Folder:         newFolder,
+		PreviousGuid:   previousGuid,
+		LatestGuid:     latestGuid,
+		NewChanges:     ioResult.NewEvents,
+		NewestChange:   newestChanges,
 		IgnorantMaster: string(ioResult.ResponseBody) == "badGuid",
-		NonFatalError: combineErrors([]error{ioResult.RequestErr, ioResult.ReadBodyErr}),
+		NonFatalError:  combineErrors([]error{ioResult.RequestErr, ioResult.ReadBodyErr}),
 	}
 	return stateAfter
 }
 
+// It takes in the parts of the main loop state which are considered to be fatal
+// errors, and combines them into a single error.
 func fatalErrors(fileError error, eventChOk bool, errChOk bool) error {
 	errSlice := []error{fileError}
 	if !eventChOk {
@@ -149,7 +157,9 @@ func combineErrors(errors []error) error {
 			noNils = append(noNils, err)
 		}
 	}
-	if len(noNils) == 0 { return nil }
+	if len(noNils) == 0 {
+		return nil
+	}
 	return fmt.Errorf(strings.Join(errorsToStrings(noNils), "\n"))
 }
 
@@ -161,6 +171,7 @@ func errorsToStrings(errors []error) []string {
 	return strs
 }
 
+// It produces the output messages, given the current state.
 func StateToOutput(state StateT, dirToWatch string) OutputT {
 	var jsonMsg []byte
 	var encErr error
@@ -186,33 +197,32 @@ func StateToOutput(state StateT, dirToWatch string) OutputT {
 	return OutputT{
 		JsonToSend: jsonMsg,
 		MsgToPrint: msgToPrint,
-		CheckForFileChanges: !state.IgnorantMaster,
 	}
 }
 
 type OutputT struct {
 	JsonToSend []byte
 	MsgToPrint string
-	CheckForFileChanges bool
 }
 
+// Makes the message to put into the POST body to send to the master server.
 func createPostMsg(
-		ignorantMaster bool,
-		latestGuid string,
-		newestChange changeSet,
-		folder map[string]bool,
-		previousGuid string,
-		dirToWatch string) ([]byte, error) {
+	ignorantMaster bool,
+	latestGuid string,
+	newestChange changeSet,
+	folder map[string]bool,
+	previousGuid string,
+	dirToWatch string) ([]byte, error) {
 	var result msgToMaster
 	if ignorantMaster {
 		result = msgToMaster{
-			FileName: newestChange.fileName,
+			FileName:     newestChange.fileName,
 			PreviousGuid: previousGuid,
-			ChangeType: changeTypeMap()[newestChange.fileChange],
-			Guid: latestGuid,
-			AllFiles: getKeys(folder),
-			Directory: dirToWatch,
-			NewList: true,
+			ChangeType:   changeTypeMap()[newestChange.fileChange],
+			Guid:         latestGuid,
+			AllFiles:     getKeys(folder),
+			Directory:    dirToWatch,
+			NewList:      true,
 		}
 	} else {
 		result = msgToMaster{
@@ -237,13 +247,13 @@ func changeTypeMap() map[fileChangeT]string {
 }
 
 type msgToMaster struct {
-	Guid string
+	Guid         string
 	PreviousGuid string
-	FileName string
-	ChangeType string
-	AllFiles []string
-	Directory string
-	NewList bool
+	FileName     string
+	ChangeType   string
+	AllFiles     []string
+	Directory    string
+	NewList      bool
 }
 
 func getKeys(m map[string]bool) []string {

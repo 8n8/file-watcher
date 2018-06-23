@@ -1,15 +1,18 @@
+// A server that watches a directory for changes to its contents,
+// maintains an up-to-date list of the contents, and sends out
+// messages to the master server when something changes.
 package main
 
 import (
+	"bytes"
+	"fmt"
 	"github.com/fsnotify/fsnotify"
 	"github.com/nu7hatch/gouuid"
-	"log"
-	"fmt"
-	"net/http"
-	"bytes"
-	"io/ioutil"
-	"os"
 	"gochallenge/watcher/update"
+	"io/ioutil"
+	"log"
+	"net/http"
+	"os"
 )
 
 func getFileNames(fileInfos []os.FileInfo) []string {
@@ -28,6 +31,10 @@ func listToMap(list []string) map[string]bool {
 	return m
 }
 
+// It does all the IO for the main loop.  This could be:
+// 1. printing a message
+// 2. sending a message to the master server
+// 3. receiving a message from the file watching goroutine
 func io(watCh watcherChannelsT, output update.OutputT, masterUrl string) update.IoResultT {
 
 	if output.MsgToPrint != "" {
@@ -42,7 +49,9 @@ func io(watCh watcherChannelsT, output update.OutputT, masterUrl string) update.
 			"application/json",
 			bytes.NewBuffer(output.JsonToSend))
 		result.RequestErr = postErr
-		if postErr != nil { return result }
+		if postErr != nil {
+			return result
+		}
 		defer response.Body.Close()
 		body, bodyErr := ioutil.ReadAll(response.Body)
 		result.ResponseBody = body
@@ -50,22 +59,19 @@ func io(watCh watcherChannelsT, output update.OutputT, masterUrl string) update.
 		return result
 	}
 
-	if output.CheckForFileChanges {
+	result.NewGuid = newGuid()
 
-		result.NewGuid = newGuid()
+	event, eventsChOk := <-watCh.events
+	result.EventChOk = eventsChOk
+	result.FileEvent = event
 
-		event, eventsChOk := <-watCh.events
-		result.EventChOk = eventsChOk
-		result.FileEvent = event
-
-		select {
-		case fileError, errChOk := <-watCh.errs:
-			result.ErrChOk = errChOk
-			result.FileError = fileError
-		default:
-		}
-		result.NewEvents = true
+	select {
+	case fileError, errChOk := <-watCh.errs:
+		result.ErrChOk = errChOk
+		result.FileError = fileError
+	default:
 	}
+	result.NewEvents = true
 
 	return result
 }
@@ -77,10 +83,12 @@ func newGuid() string {
 
 type watcherChannelsT struct {
 	events chan fsnotify.Event
-	errs chan error
-	ask chan bool
+	errs   chan error
+	ask    chan bool
 }
 
+// This function gets run as a separate goroutine.  It continuously
+// watches the given directory and sends any changes down the given channels.
 func fileWatcher(watCh watcherChannelsT, dirToWatch string) {
 	watcher, err := fsnotify.NewWatcher()
 	watcher.Add(dirToWatch)
@@ -114,19 +122,14 @@ func main() {
 
 	watCh := watcherChannelsT{
 		events: make(chan fsnotify.Event, maxChanBuf),
-		errs: make(chan error, maxChanBuf),
-		ask: make(chan bool),
+		errs:   make(chan error, maxChanBuf),
+		ask:    make(chan bool),
 	}
 
 	go fileWatcher(watCh, dirToWatch)
 
 	state := update.InitState(listToMap(getFileNames(fileList)), newGuid())
 	for state.KeepGoing {
-		state = update.Update(
-			state,
-			io(
-				watCh,
-				update.StateToOutput(state, dirToWatch),
-				masterUrl))
+		state = update.Update(state, io(watCh, update.StateToOutput(state, dirToWatch), masterUrl))
 	}
 }
