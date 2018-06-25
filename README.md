@@ -18,7 +18,7 @@ Set the GOPATH to /path/to/this/repository/go.  Build with ```go install gochall
 
 ## Run
 
-Run the master server without any arguments.  To get the list of files as JSON, do a GET request to http://localost:3000/files .  Run the watcher with one argument, which should be the absolute path of the directory to watch.
+Run the master server without any arguments.  To get the list of files as JSON, do a GET request to http://localhost:3000/files .  Run the watcher with one argument, which should be the absolute path of the directory to watch.
 
 ## Todo
 
