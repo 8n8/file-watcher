@@ -10,7 +10,7 @@ The master server listens for input from the watcher servers.  Each watcher main
 
 Tested on Ubuntu 16.04, with Go 1.10.1.
 
-Set the GOPATH to /path/to/this/repository/go.  Build with ```go build watcher``` in go/src/gochallenge/watcher and ```go build master``` in go/src/gochallenge/master.  The dependencies (installable with ```go get```) are
+Set the GOPATH to /path/to/this/repository/go.  Build with ```go install gochallenge/watcher``` and ```go install gochallenge/master```.  The dependencies (installable with ```go get```) are
 
 + github.com/fsnotify/fsnotify
 + github.com/nu7hatch/gouuid
