@@ -33,7 +33,6 @@ func io(output update.OutputT, chs serverChannelsT) update.IoResultT {
 	case rawWatcherInput := <-chs.watcherInput:
 		result.RawWatcherInput = rawWatcherInput
 		result.ClientOrWatcher = update.WatcherInputC
-		return result
 	}
 	return result
 }
